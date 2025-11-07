@@ -53,4 +53,22 @@ public class PointMass {
         g2d.fillOval(drawX, drawY, size, size);
     }
 
+    public boolean collidesWith(Planet other) {
+        return distanceTo(other) < (this.radius + other.radius);
+    }
+
+    public void handleCollision(Planet other) {
+        this.mass += other.mass;
+
+        Color c1 = this.color;
+        Color c2 = other.color;
+        int r = (c1.getRed() + c2.getRed()) / 2;
+        int g = (c1.getGreen() + c2.getGreen()) / 2;
+        int b = (c1.getBlue() + c2.getBlue()) / 2;
+
+        Color newColor = new Color(r, g, b);
+
+        this.color = newColor;
+    }
+
 }
