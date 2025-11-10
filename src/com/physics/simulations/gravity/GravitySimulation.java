@@ -21,8 +21,10 @@ public class GravitySimulation extends BaseSimulation {
     private List<Planet> planets = new ArrayList<>();
      private List<PointMass> masses = new ArrayList<>();
     
-    /** Gravitational constant (scaled for visualization - not real-world value) */
+    /** GLOBAL VARAIBLES OF SIMULATION */
     private double gravitationalConstant = 6000.0;
+    private boolean bounce = true;
+    private double coefficientOfRestitution = 1.0;
     
     /** Animation timer - calls update() repeatedly */
     private Timer animationTimer;
@@ -311,10 +313,14 @@ public class GravitySimulation extends BaseSimulation {
 
                 // Check for collisions
                 if (planet.collidesWith(other)) {
-                    Planet merged = planet.handleCollision(other);
-                    toAdd.add(merged);       // new merged planet to add later
-                    toRemove.add(planet);    // both old ones should be removed
-                    toRemove.add(other);
+                    if (bounce = true) {
+                        planet.bouncePlanet(coefficientOfRestitution, other);
+                    }
+                    else {
+                        Planet merged = planet.merge(other);
+                        toAdd.add(merged);       // new merged planet to add later
+                        toRemove.add(planet);    // both old ones should be removed
+                        toRemove.add(other); }
                     break;                   // stop computing further for this planet
                 }
 
@@ -326,8 +332,12 @@ public class GravitySimulation extends BaseSimulation {
 
             for (PointMass mass : masses) {
                 if (mass.collidesWith(planet)) {
-                    mass.handleCollision(planet);
-                    toRemove.add(planet);          // planet should be removed
+                    if (bounce == true) {
+                        planet.bouncePointMass(coefficientOfRestitution);
+                    }
+                    else {
+                        mass.merge(planet);
+                        toRemove.add(planet); }
                     break;                         // stop computing further for this planet
                 }
 

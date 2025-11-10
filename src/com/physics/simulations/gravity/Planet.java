@@ -124,7 +124,7 @@ public class Planet {
         return distanceTo(other) < (this.radius + other.radius);
     }
     
-    public Planet handleCollision(Planet other) {
+    public Planet merge(Planet other) {
         double combinedMass = this.mass + other.mass;
         double newVx = (this.vx * this.mass + other.vx * other.mass) / combinedMass;
         double newVy = (this.vy * this.mass + other.vy * other.mass) / combinedMass;
@@ -142,6 +142,67 @@ public class Planet {
 
         Color newColor = new Color(r, g, b);
         return new Planet(combinedMass, newRadius, newX, newY, newVx, newVy, newColor);
+    }
+
+    public void bouncePlanet(double coefficientOfRestitution, Planet other) {
+        double[] otherPos = other.getPosition();
+        double otherMass = other.getMass();
+        double otherX = otherPos[0];
+        double otherY = otherPos[1];
+        double[] deltaPos = {otherX - this.x, otherY - this.y};
+        double deltaPosMag = Math.sqrt((deltaPos[0] * deltaPos[0]) + (deltaPos[1] * deltaPos[1]));
+
+        double[] n = {deltaPos[0] / deltaPosMag, deltaPos[1] / deltaPosMag};
+
+        double[] v1 = { this.vx, this.vy };
+        double[] v2 = other.getVelocity();
+
+        // Project velocities onto the collision normal
+        double u1 = v1[0]*n[0] + v1[1]*n[1];
+        double u2 = v2[0]*n[0] + v2[1]*n[1];
+
+        double relVel = u1 - u2;
+        if (relVel <= 0) return; // they are separating, no bounce
+
+        double m1 = this.mass;
+        double m2 = otherMass;
+        double e = coefficientOfRestitution;
+
+        double u1p = ( (m1 - e*m2)*u1 + (1 + e)*m2*u2 ) / (m1 + m2);
+        double u2p = ( (m2 - e*m1)*u2 + (1 + e)*m1*u1 ) / (m1 + m2);
+
+        double deltaU1 = u1p - u1;
+        double deltaU2 = u2p - u2;
+
+        this.vx += deltaU1 * n[0];
+        this.vy += deltaU1 * n[1];
+
+        other.setVelocity(
+            v2[0] + deltaU2 * n[0],
+            v2[1] + deltaU2 * n[1]
+        );
+    }
+
+    public void bouncePointMass(double coefficientOfRestitution) {
+        this.vx *= -coefficientOfRestitution;
+        this.vy *= -coefficientOfRestitution;
+    }
+
+    public double[] getVelocity() {
+        return new double[] {vx, vy};
+    }
+
+    public double[] getPosition() {
+        return new double[] {x, y};
+    }
+
+    public double getMass() {
+        return this.mass;
+    }
+
+    public void setVelocity(double new_vx, double new_vy){
+        this.vx = new_vx;
+        this.vy = new_vy;
     }
     
     @Override

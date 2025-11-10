@@ -57,7 +57,7 @@ public class PointMass {
         return distanceTo(other) < (this.radius + other.radius);
     }
 
-    public void handleCollision(Planet other) {
+    public void merge(Planet other) {
         this.mass += other.mass;
 
         Color c1 = this.color;

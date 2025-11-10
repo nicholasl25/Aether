@@ -13,11 +13,6 @@ import javax.swing.JFrame;
  * Simulations are organized by domain (astronomy, fluids, mechanics, etc.)
  * and don't share implementation code between them.
  * 
- * Learning Concepts:
- * - Abstract classes: Can't be instantiated directly, but define structure
- * - Inheritance: Your simulations will "extend" this class
- * - Polymorphism: You can treat all simulations the same way through this interface
- * 
  * TODO: Implement the methods in your simulation classes!
  */
 public abstract class BaseSimulation extends JFrame {
