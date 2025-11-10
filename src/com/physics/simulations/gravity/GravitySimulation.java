@@ -7,13 +7,11 @@ import java.awt.event.ActionEvent;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.awt.event.MouseMotionListener;
-import java.awt.event.MouseWheelEvent;
-import java.awt.event.MouseWheelListener;
 import java.awt.event.KeyEvent;
-import java.awt.event.KeyListener;
 import java.awt.geom.AffineTransform;
 import java.util.ArrayList;
 import java.util.List;
+import java.awt.BasicStroke;
 
 /**
  * Gravity Simulation - Multiple planets interacting through gravitational forces
@@ -35,21 +33,24 @@ public class GravitySimulation extends BaseSimulation {
     /** Drawing panel - custom component for rendering */
     private DrawingPanel drawingPanel;
 
-    /** Zoom factor that controls the scale of the simulation */
-    private double zoomFactor = 1.0;
+    /** Pan offsets (in screen coordinates) */
     private double panLevelX = 0.0;
     private double panLevelY = 0.0;
-
-    private double minZoom = 0.1;
-    private double maxZoom = 10.0;
 
     /** Mouse drag tracking */
     private int lastMouseX = 0;
     private int lastMouseY = 0;
     private boolean isDragging = false;
+    private boolean hasDragged = false; // Track if mouse moved during press/release
+    private int mousePressX = 0;
+    private int mousePressY = 0;
     
     /** Pause state */
     private boolean isPaused = false;
+    
+    /** Control panel for adding objects */
+    private ControlPanel controlPanel;
+    private double clickedWorldX, clickedWorldY;
     
     /**
      * Sets up the simulation window and creates initial planets.
@@ -66,12 +67,29 @@ public class GravitySimulation extends BaseSimulation {
         planets = new ArrayList<>();
         masses = new ArrayList<>();
         
+        // Create control panel
+        controlPanel = new ControlPanel(
+            this::addPlanetFromFields,
+            this::addPointMassFromFields,
+            this::clearSimulation
+        );
+        
+        // Initialize clicked position to center
+        clickedWorldX = 500.0;
+        clickedWorldY = 400.0;
+        
         // Create a custom drawing panel to handle rendering
         // We'll override its paintComponent() method to draw our planets
         drawingPanel = new DrawingPanel();
         setupMouseListeners();
-        setupKeyListener();
-        add(drawingPanel);
+        
+        // Add components to main window
+        setLayout(new BorderLayout());
+        add(controlPanel, BorderLayout.EAST);
+        add(drawingPanel, BorderLayout.CENTER);
+        
+        // Set up spacebar key binding at root pane level to prevent buttons from intercepting it
+        setupKeyBindings();
         
         // Make sure the panel can receive focus for keyboard events
         drawingPanel.setFocusable(true);
@@ -113,37 +131,20 @@ public class GravitySimulation extends BaseSimulation {
     }
     
     /**
-     * Sets up mouse listeners for zoom and pan
+     * Sets up mouse listeners for pan
      */
     private void setupMouseListeners() {
-        // Mouse wheel listener for zoom
-        drawingPanel.addMouseWheelListener(new MouseWheelListener() {
-            @Override
-            public void mouseWheelMoved(MouseWheelEvent e) {
-                int notches = e.getWheelRotation();
-                double zoomChange = 1.1;
-                
-                if (notches > 0) {
-                    // Scroll down - zoom out
-                    zoomFactor /= zoomChange;
-                } else {
-                    // Scroll up - zoom in
-                    zoomFactor *= zoomChange;
-                }
-
-                zoomFactor = Math.max(minZoom, Math.min(maxZoom, zoomFactor));
-                repaint();
-            }
-        });
-        
         // Mouse listeners for drag-to-pan
         drawingPanel.addMouseListener(new MouseListener() {
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.getButton() == MouseEvent.BUTTON1) { // Left mouse button
                     isDragging = true;
+                    hasDragged = false;
                     lastMouseX = e.getX();
                     lastMouseY = e.getY();
+                    mousePressX = e.getX();
+                    mousePressY = e.getY();
                 }
             }
             
@@ -151,11 +152,30 @@ public class GravitySimulation extends BaseSimulation {
             public void mouseReleased(MouseEvent e) {
                 if (e.getButton() == MouseEvent.BUTTON1) {
                     isDragging = false;
+                    
+                    // If mouse didn't move much (or at all), treat it as a click
+                    // Update click position only if we didn't drag significantly
+                    int dragDistance = (int) Math.sqrt(
+                        Math.pow(e.getX() - mousePressX, 2) + 
+                        Math.pow(e.getY() - mousePressY, 2)
+                    );
+                    
+                    // If drag distance is small (less than 5 pixels), treat as click
+                    if (!hasDragged || dragDistance < 5) {
+                        // Convert screen coordinates to world coordinates
+                        clickedWorldX = e.getX() - panLevelX;
+                        clickedWorldY = e.getY() - panLevelY;
+                        
+                        // Repaint to show the red X marker
+                        drawingPanel.repaint();
+                    }
                 }
             }
             
             @Override
-            public void mouseClicked(MouseEvent e) {}
+            public void mouseClicked(MouseEvent e) {
+                // This can be unreliable, so we handle clicks in mouseReleased instead
+            }
             
             @Override
             public void mouseEntered(MouseEvent e) {}
@@ -169,6 +189,7 @@ public class GravitySimulation extends BaseSimulation {
             @Override
             public void mouseDragged(MouseEvent e) {
                 if (isDragging) {
+                    hasDragged = true; // Mark that dragging occurred
                     int currentX = e.getX();
                     int currentY = e.getY();
                     
@@ -176,10 +197,9 @@ public class GravitySimulation extends BaseSimulation {
                     int deltaX = currentX - lastMouseX;
                     int deltaY = currentY - lastMouseY;
                     
-                    // Update pan (adjust for zoom level so panning feels consistent)
-                    // Positive to move the view in the direction of the drag
-                    panLevelX += deltaX / zoomFactor;
-                    panLevelY += deltaY / zoomFactor;
+                    // Update pan - move the view in the direction of the drag
+                    panLevelX += deltaX;
+                    panLevelY += deltaY;
                     
                     // Update last mouse position
                     lastMouseX = currentX;
@@ -195,24 +215,71 @@ public class GravitySimulation extends BaseSimulation {
     }
     
     /**
-     * Sets up key listener for pause/resume
+     * Adds a planet using values from the control panel
      */
-    private void setupKeyListener() {
-        drawingPanel.addKeyListener(new KeyListener() {
+    private void addPlanetFromFields() {
+        ControlPanel.PlanetData data = controlPanel.getPlanetData();
+        if (data == null) {
+            JOptionPane.showMessageDialog(this, "Please enter valid numbers!", "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        
+        Planet newPlanet = new Planet(data.mass, data.radius, clickedWorldX, clickedWorldY, 
+                                     data.vx, data.vy, data.color);
+        planets.add(newPlanet);
+        drawingPanel.repaint();
+    }
+    
+    /**
+     * Adds a point mass using values from the control panel
+     */
+    private void addPointMassFromFields() {
+        ControlPanel.PointMassData data = controlPanel.getPointMassData();
+        if (data == null) {
+            JOptionPane.showMessageDialog(this, "Please enter valid numbers!", "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        
+        PointMass newMass = new PointMass(data.mass, clickedWorldX, clickedWorldY, 
+                                         data.radius, data.color);
+        masses.add(newMass);
+        drawingPanel.repaint();
+    }
+    
+    /**
+     * Clears all planets and point masses from the simulation
+     */
+    private void clearSimulation() {
+        planets.clear();
+        masses.clear();
+        drawingPanel.repaint();
+    }
+    
+    /**
+     * Sets up key bindings for pause/resume.
+     * Uses root pane bindings to ensure spacebar always works, even when buttons have focus.
+     */
+    private void setupKeyBindings() {
+        // Get the root pane for global key bindings
+        JRootPane rootPane = getRootPane();
+        
+        // Create the action for pause/resume
+        AbstractAction pauseResumeAction = new AbstractAction() {
             @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_SPACE) {
-                    isPaused = !isPaused;
-                    repaint();
-                }
+            public void actionPerformed(ActionEvent e) {
+                isPaused = !isPaused;
+                repaint();
             }
-            
-            @Override
-            public void keyReleased(KeyEvent e) {}
-            
-            @Override
-            public void keyTyped(KeyEvent e) {}
-        });
+        };
+        
+        // Bind spacebar at the root pane level with WHEN_IN_FOCUSED_WINDOW
+        // This ensures it works regardless of which component has focus
+        InputMap inputMap = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap actionMap = rootPane.getActionMap();
+        
+        KeyStroke spaceKey = KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0);
+        inputMap.put(spaceKey, "pauseResume");
+        actionMap.put("pauseResume", pauseResumeAction);
     }
     
     
@@ -345,10 +412,8 @@ public class GravitySimulation extends BaseSimulation {
             // Save the original transform for text drawing
             AffineTransform originalTransform = g2d.getTransform();
             
-            // Apply transformations: translate to center, pan, then zoom
-            g2d.translate(0.0, 0.0);
+            // Apply transformations: pan only
             g2d.translate(panLevelX, panLevelY);
-            g2d.scale(zoomFactor, zoomFactor);
             
             // Draw grid background for position reference
             drawGrid(g2d);
@@ -367,6 +432,9 @@ public class GravitySimulation extends BaseSimulation {
                 }
             }
             
+            // Draw red X marker at last click position
+            drawClickMarker(g2d);
+            
             // Restore original transform for text (so it's not zoomed/panned)
             g2d.setTransform(originalTransform);
             
@@ -375,68 +443,64 @@ public class GravitySimulation extends BaseSimulation {
             g2d.drawString("Planets: " + (planets != null ? planets.size() : 0), 10, 20);
             g2d.drawString("Point Masses: " + (masses != null ? masses.size() : 0), 10, 35);
             g2d.drawString("G = " + gravitationalConstant, 10, 50);
-            g2d.drawString(String.format("Zoom: %.2fx", zoomFactor), 10, 65);
             if (isPaused) {
                 g2d.setColor(Color.YELLOW);
-                g2d.drawString("PAUSED - Press SPACE to resume", 10, 80);
+                g2d.drawString("PAUSED - Press SPACE to resume", 10, 65);
             }
             g2d.setColor(Color.WHITE);
-            g2d.drawString("Controls: Mouse wheel = zoom, Drag = pan, SPACE = pause/resume", 10, getHeight() - 10);
+            g2d.drawString("Controls: Click to set position, then use panel on right. Drag = pan, SPACE = pause/resume", 10, getHeight() - 10);
         }
         
         /**
          * Draws a grid background to provide visual position reference.
-         * The grid scales with zoom and pans with the view.
+         * The grid pans with the view.
          */
         private void drawGrid(Graphics2D g2d) {
             // Grid spacing (in world coordinates)
             int gridSpacing = 100;
-            int majorGridSpacing = 500;
             
-            // Get the visible area bounds (approximate based on screen size and zoom)
-            double visibleWidth = getWidth() / zoomFactor;
-            double visibleHeight = getHeight() / zoomFactor;
-            double centerX = -panLevelX;
-            double centerY = -panLevelY;
+            // Draw a large grid covering a wide area
+            // Java will automatically clip lines outside the visible area
+            int gridSize = 10000; // Large area covered by grid
+            int startX = -gridSize;
+            int endX = gridSize;
+            int startY = -gridSize;
+            int endY = gridSize;
             
-            double startX = centerX - visibleWidth / 2;
-            double endX = centerX + visibleWidth / 2;
-            double startY = centerY - visibleHeight / 2;
-            double endY = centerY + visibleHeight / 2;
-            
-            // Draw minor grid lines (lighter)
-            g2d.setColor(new Color(30, 30, 30)); // Dark gray
-            g2d.setStroke(new BasicStroke(0.5f));
-            
-            // Vertical lines
-            for (int x = (int)(startX / gridSpacing) * gridSpacing; x <= endX; x += gridSpacing) {
-                g2d.drawLine(x, (int)startY, x, (int)endY);
-            }
-            
-            // Horizontal lines
-            for (int y = (int)(startY / gridSpacing) * gridSpacing; y <= endY; y += gridSpacing) {
-                g2d.drawLine((int)startX, y, (int)endX, y);
-            }
-            
-            // Draw major grid lines (slightly brighter)
-            g2d.setColor(new Color(50, 50, 50));
+            // Set grid color and stroke
+            g2d.setColor(new Color(40, 40, 40)); // Dark gray
             g2d.setStroke(new BasicStroke(1.0f));
             
-            // Vertical major lines
-            for (int x = (int)(startX / majorGridSpacing) * majorGridSpacing; x <= endX; x += majorGridSpacing) {
-                g2d.drawLine(x, (int)startY, x, (int)endY);
+            // Draw vertical lines
+            for (int x = startX; x <= endX; x += gridSpacing) {
+                g2d.drawLine(x, startY, x, endY);
             }
             
-            // Horizontal major lines
-            for (int y = (int)(startY / majorGridSpacing) * majorGridSpacing; y <= endY; y += majorGridSpacing) {
-                g2d.drawLine((int)startX, y, (int)endX, y);
+            // Draw horizontal lines
+            for (int y = startY; y <= endY; y += gridSpacing) {
+                g2d.drawLine(startX, y, endX, y);
             }
+        }
+        
+        /**
+         * Draws a red X marker at the last click position
+         */
+        private void drawClickMarker(Graphics2D g2d) {
+            // Size of the X marker
+            int markerSize = 15;
+            int halfSize = markerSize / 2;
             
-            // Draw center axes (brighter)
-            g2d.setColor(new Color(80, 80, 80));
-            g2d.setStroke(new BasicStroke(1.5f));
-            g2d.drawLine(0, (int)startY, 0, (int)endY); // Vertical center line
-            g2d.drawLine((int)startX, 0, (int)endX, 0); // Horizontal center line
+            // Set color and stroke for the X
+            g2d.setColor(Color.RED);
+            g2d.setStroke(new BasicStroke(2.0f));
+            
+            // Draw the X: two diagonal lines
+            int x = (int) clickedWorldX;
+            int y = (int) clickedWorldY;
+            
+            // Draw diagonal lines forming an X
+            g2d.drawLine(x - halfSize, y - halfSize, x + halfSize, y + halfSize);
+            g2d.drawLine(x - halfSize, y + halfSize, x + halfSize, y - halfSize);
         }
     }
 }
