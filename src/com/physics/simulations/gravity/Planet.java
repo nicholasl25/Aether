@@ -3,6 +3,12 @@ package com.physics.simulations.gravity;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.BasicStroke;
+import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
+import java.io.File;
+import java.io.IOException;
+import java.awt.geom.AffineTransform;
+import java.awt.RenderingHints;
 
 /**
  * Planet class - represents a celestial body in the gravity simulation.
@@ -25,8 +31,15 @@ public class Planet {
     double vx, vy;
     Color color;
     boolean clicked = false;
+    double angularVelocity;
+    
+    // Texture and rotation fields
+    private BufferedImage texture;
+    protected double rotationAngle = 0.0;
+    private String texturePath;
 
-    public Planet(double mass, double radius, double x, double y, double vx, double vy, Color color) {
+    // Constructor with texture
+    public Planet(double mass, double radius, double x, double y, double vx, double vy, double angularVelocity, Color color, String texturePath) {
         this.mass = mass;
         this.radius = radius;
         this.x = x;
@@ -35,6 +48,35 @@ public class Planet {
         this.vy = vy;
         this.color = color;
         this.clicked = false;
+        this.texturePath = texturePath;
+        this.angularVelocity = angularVelocity;
+        
+        // Load texture if provided
+        if (texturePath != null && !texturePath.isEmpty()) {
+            loadTexture(texturePath);
+        }
+    }
+    
+    /**
+     * Loads and scales a texture image from file
+     */
+    private void loadTexture(String path) {
+        try {
+            BufferedImage original = ImageIO.read(new File(path));
+            
+            // Pre-scale to planet size for better performance
+            int texSize = (int)(radius * 2.5);
+            texture = new BufferedImage(texSize, texSize, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = texture.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(original, 0, 0, texSize, texSize, null);
+            g.dispose();
+            
+            System.out.println("Loaded texture: " + path);
+        } catch (IOException e) {
+            System.err.println("Failed to load texture: " + path + " - Using solid color");
+            texture = null;
+        }
     }
     
     /**
@@ -43,9 +85,18 @@ public class Planet {
      * 
      * @param deltaTime Time elapsed since last update
      */
-    public void updatePosition(double deltaTime) {
-        this.x += this.vx * deltaTime;
-        this.y += this.vy * deltaTime;
+    public void updatePosition(double deltaTime, double timeFactor) {
+        this.x += this.vx * deltaTime * timeFactor;
+        this.y += this.vy * deltaTime * timeFactor;
+        
+        // Update rotation angle
+        this.rotationAngle += angularVelocity * timeFactor;
+        this.rotationAngle %= (Math.PI * 2);  // reduce it into [ -2π, 2π )
+
+        // make sure it's positive if you want it in [0, 2π)
+        if (this.rotationAngle < 0) {
+            this.rotationAngle += Math.PI * 2;
+        }
     }
     
     /**
@@ -98,26 +149,55 @@ public class Planet {
     
     
     /**
-     * Draws the planet on the screen.
+     * Draws the planet on the screen with texture rotation or solid color.
      * 
      * @param g2d Graphics2D object for drawing
      */
     public void draw(Graphics2D g2d) {
-        g2d.setColor(color);
         int drawX = (int)(x - radius);
         int drawY = (int)(y - radius);
         int size = (int)(radius * 2);
-        g2d.fillOval(drawX, drawY, size, size);
+        
+        if (texture != null) {
+            // Save original transform
+            AffineTransform oldTransform = g2d.getTransform();
+            
+            // Create clipping circle for the planet
+            g2d.setClip(new java.awt.geom.Ellipse2D.Double(drawX, drawY, size, size));
+            
+            // Translate to planet center
+            g2d.translate(x, y);
+            
+            // Apply rotation
+            g2d.rotate(rotationAngle);
+            
+            // Draw texture centered and scaled
+            int texSize = texture.getWidth();
+            g2d.drawImage(texture, 
+                         -texSize/2, -texSize/2,
+                         texSize, texSize,
+                         null);
+            
+            // Restore transform and clip
+            g2d.setTransform(oldTransform);
+            g2d.setClip(null);
+            
+        } else {
+            // Fallback: draw solid color if no texture
+            g2d.setColor(color);
+            g2d.fillOval(drawX, drawY, size, size);
+        }
 
         if (clicked) {
             g2d.setStroke(new BasicStroke(3.0f));
             g2d.setColor(Color.YELLOW);
             g2d.drawOval(drawX-5, drawY-5, size+10, size+10);
         }
-        // Optional: Draw velocity vector
-        // g2d.setColor(Color.YELLOW);
-        // g2d.drawLine((int)x, (int)y, (int)(x + vx), (int)(y + vy));
     }
+    
+    /**
+     * Adds 3D shading effect over the texture for realism
+     */
 
     public void clicked() {
         this.clicked = !this.clicked;
@@ -151,7 +231,18 @@ public class Planet {
         int b = (c1.getBlue() + c2.getBlue()) / 2;
 
         Color newColor = new Color(r, g, b);
-        return new Planet(combinedMass, newRadius, newX, newY, newVx, newVy, newColor);
+
+        double angularMomentum = 0.4 * (this.radius * this.radius * this.mass + other.radius * other.radius * other.mass);
+        double newAngularVelocity = 2.5 * angularMomentum / (newRadius * newRadius * combinedMass);
+
+        String newTexturePath = null;
+        if (this.radius > other.radius) {
+            newTexturePath = this.texturePath;
+        } else {
+            newTexturePath = other.texturePath;
+        }
+        
+        return new Planet(combinedMass, newRadius, newX, newY, newVx, newVy, newAngularVelocity, newColor, newTexturePath);
     }
 
     public void bouncePlanet(double coefficientOfRestitution, Planet other) {
@@ -193,6 +284,14 @@ public class Planet {
         );
     }
 
+    public double getPeriodOfRotation() {
+        if (angularVelocity != 0.0) {
+            return 2 * Math.PI / angularVelocity;}
+        else {
+            return 0.0;
+        }
+    }
+
     public void bouncePointMass(double coefficientOfRestitution) {
         this.vx *= -coefficientOfRestitution;
         this.vy *= -coefficientOfRestitution;
@@ -223,7 +322,7 @@ public class Planet {
     
     @Override
     public String toString() {
-        return String.format("Planet at (%.2f, %.2f) vel=(%.2f, %.2f)", x, y, vx, vy);
+        return String.format("Planet with mass = %.2f (%.2f, %.2f) vel=(%.2f, %.2f)", mass, x, y, vx, vy);
     }
 
 

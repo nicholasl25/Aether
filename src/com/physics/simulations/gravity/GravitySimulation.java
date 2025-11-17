@@ -19,12 +19,12 @@ import java.awt.BasicStroke;
 public class GravitySimulation extends BaseSimulation {
     /** List of all planets/point masses in the simulation */
     private List<Planet> planets = new ArrayList<>();
-     private List<PointMass> masses = new ArrayList<>();
     
     /** GLOBAL VARAIBLES OF SIMULATION */
     private double gravitationalConstant = 6000.0;
-    private boolean bounce = true;
+    private boolean bounce = false;
     private double coefficientOfRestitution = 1.0;
+    private double timeFactor = 1.0;
     
     /** Animation timer - calls update() repeatedly */
     private Timer animationTimer;
@@ -55,6 +55,11 @@ public class GravitySimulation extends BaseSimulation {
     private double clickedWorldX, clickedWorldY;
 
     private Planet clickedPlanet = null;
+
+    private double maxMass = 100000;
+    private double maxRadius = 100;
+    private double maxVelocity = 1000;
+    private int maxObjects = 100;
     
     /**
      * Sets up the simulation window and creates initial planets.
@@ -69,14 +74,13 @@ public class GravitySimulation extends BaseSimulation {
         
         // Initialize the list of planets
         planets = new ArrayList<>();
-        masses = new ArrayList<>();
         
         // Create control panel
         controlPanel = new ControlPanel(
             this::addPlanetFromFields,
-            this::addStationaryMassFromFields,
             this::clearSimulation,
-            this::updateGravity
+            this::updateGravity,
+            this::updateTimeFactor
         );
         
         // Initialize clicked position to center
@@ -113,8 +117,9 @@ public class GravitySimulation extends BaseSimulation {
             1000.0,                   
             20.0,                      
             500.0, 400.0,        
-            0.0, 0.0,              
-            Color.YELLOW
+            0.0, 0.0, 0.02,             
+            Color.YELLOW, 
+            "resources/textures/Sun.jpg"  
         );
 
 
@@ -122,8 +127,9 @@ public class GravitySimulation extends BaseSimulation {
             50.0,                     
             10.0,                 
             700.0, 400.0,
-            0.0, -80.0,
-            Color.BLUE
+            0.0, -80.0, 0.06,
+            Color.BLUE,
+            "resources/textures/Earth.jpg"
         );
         
         planets.add(sun);
@@ -132,7 +138,7 @@ public class GravitySimulation extends BaseSimulation {
 
     private void setupMasses() {
         PointMass mass = new PointMass(500, 500, 500);
-        masses.add(mass);
+        planets.add(mass);
     }
     
     /**
@@ -174,6 +180,9 @@ public class GravitySimulation extends BaseSimulation {
                         // Check if the clicked position is on a planet
                         for (Planet planet : planets) {
                             if (planet.containsPoint(clickedWorldX, clickedWorldY)) {
+                                if (clickedPlanet != null) {
+                                    clickedPlanet.clicked();
+                                }
                                 clickedPlanet = planet;
                                 planet.clicked();
                                 break;
@@ -238,25 +247,27 @@ public class GravitySimulation extends BaseSimulation {
             return;
         }
         
-        Planet newPlanet = new Planet(data.mass, data.radius, clickedWorldX, clickedWorldY, 
-                                     data.vx, data.vy, data.color);
-        planets.add(newPlanet);
-        drawingPanel.repaint();
-    }
-    
-    /**
-     * Adds a stationary mass using values from the control panel
-     */
-    private void addStationaryMassFromFields() {
-        ControlPanel.StationaryMassData data = controlPanel.getStationaryMassData();
-        if (data == null) {
-            JOptionPane.showMessageDialog(this, "Please enter valid numbers!", "Error", JOptionPane.ERROR_MESSAGE);
+        if (data.mass > maxMass) {
+            JOptionPane.showMessageDialog(this, "Please limit planet masses to " + maxMass + ".", "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
+
+        if (data.radius > maxRadius) {
+            JOptionPane.showMessageDialog(this, "Please limit planet radii to " + maxRadius + ".", "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        if ((data.vx > maxVelocity) || (data.vy > maxVelocity)) {
+            JOptionPane.showMessageDialog(this, "Please limit planet velocities to " + maxVelocity + ".", "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        // Calculate angular velocity from period before creating the planet
+        double angularVelocity = data.getAngularVelocity();
         
-        PointMass newMass = new PointMass(data.mass, clickedWorldX, clickedWorldY, 
-                                         data.radius, data.color);
-        masses.add(newMass);
+        Planet newPlanet = new Planet(data.mass, data.radius, clickedWorldX, clickedWorldY, 
+                                     data.vx, data.vy, angularVelocity, data.color, data.texturePath);
+        planets.add(newPlanet);
         drawingPanel.repaint();
     }
     
@@ -267,12 +278,15 @@ public class GravitySimulation extends BaseSimulation {
         gravitationalConstant = newGravity;
     }
     
+    private void updateTimeFactor(Double newTimeFactor) {
+        timeFactor = newTimeFactor;
+    }
+    
     /**
      * Clears all planets and point masses from the simulation
      */
     private void clearSimulation() {
         planets.clear();
-        masses.clear();
         drawingPanel.repaint();
     }
     
@@ -323,47 +337,48 @@ public class GravitySimulation extends BaseSimulation {
         List<Planet> toRemove = new ArrayList<>();
 
         for (Planet planet : planets) {
+            if (toRemove.contains(planet)) continue;
+            
+            // Skip PointMass objects - they don't move or need force calculations
+            if (planet instanceof PointMass) continue;
+            
             // Initialize total force components
             double totalForceX = 0.0;
             double totalForceY = 0.0;
 
             for (Planet other : planets) {
                 if (planet == other) continue;
+                if (toRemove.contains(other)) continue;
 
                 // Check for collisions
                 if (planet.collidesWith(other)) {
-                    if (bounce = true) {
-                        planet.bouncePlanet(coefficientOfRestitution, other);
+                    if (bounce) {
+                        if (other instanceof PointMass) {
+                            planet.bouncePointMass(coefficientOfRestitution);
+                        } else {
+                            planet.bouncePlanet(coefficientOfRestitution, other);
+                        }
+                    } else {
+                        // Handle merge - PointMass always wins
+                        if (other instanceof PointMass) {
+                            PointMass merged = ((PointMass) other).merge(planet);
+                            toAdd.add(merged);
+                            toRemove.add(planet);
+                            toRemove.add(other);
+                        } else {
+                            Planet merged = planet.merge(other);
+                            toAdd.add(merged);
+                            toRemove.add(planet);
+                            toRemove.add(other);
+                        }
                     }
-                    else {
-                        Planet merged = planet.merge(other);
-                        toAdd.add(merged);       // new merged planet to add later
-                        toRemove.add(planet);    // both old ones should be removed
-                        toRemove.add(other); }
-                    break;                   // stop computing further for this planet
+                    break; // stop computing further for this planet
                 }
 
                 // Compute gravitational force
                 double[] force = planet.gravitationalForceFrom(other, gravitationalConstant);
                 totalForceX += force[0];
                 totalForceY += force[1];
-            }
-
-            for (PointMass mass : masses) {
-                if (mass.collidesWith(planet)) {
-                    if (bounce == true) {
-                        planet.bouncePointMass(coefficientOfRestitution);
-                    }
-                    else {
-                        mass.merge(planet);
-                        toRemove.add(planet); }
-                    break;                         // stop computing further for this planet
-                }
-
-                double[] force = mass.gravitationalForceFrom(planet, gravitationalConstant);
-                // Equal and opposite forces but pointmasses don't move
-                totalForceX -= force[0];
-                totalForceY -= force[1];
             }
 
             // Skip velocity update if planet is set to be removed
@@ -373,7 +388,7 @@ public class GravitySimulation extends BaseSimulation {
             double accelerationX = totalForceX / planet.mass;
             double accelerationY = totalForceY / planet.mass;
 
-            planet.updateVelocity(accelerationX, accelerationY, deltaTime);
+            planet.updateVelocity(accelerationX, accelerationY, deltaTime * timeFactor);
         }
 
         // Apply removals and additions safely after iteration
@@ -382,7 +397,7 @@ public class GravitySimulation extends BaseSimulation {
         
         // Update positions based on velocities (after all velocities are updated)
         for (Planet planet : planets) {
-            planet.updatePosition(deltaTime);
+            planet.updatePosition(deltaTime, timeFactor);
         }
     }
     
@@ -454,22 +469,20 @@ public class GravitySimulation extends BaseSimulation {
                 }
             }
             
-            // Draw all point masses
-            if (masses != null) {
-                for (PointMass mass : masses) {
-                    mass.draw(g2d);
-                }
-            }
+            // Draw red X marker at last click position (in world coordinates)
+            drawClickMarker(g2d);
+            
+            // Restore original transform for text (so it's not zoomed/panned)
+            g2d.setTransform(originalTransform);
 
             if (clickedPlanet != null) {
                 Planet selectedPlanet = clickedPlanet;
-                g2d.setTransform(originalTransform);
 
                 // Draw info box
                 int infoX = 10;
-                int infoY = 100;
+                int infoY = 70;
                 int boxWidth = 250;
-                int boxHeight = 150;
+                int boxHeight = 170;
 
                 g2d.setColor(new Color(0, 0, 0, 200));
                 g2d.fillRect(infoX, infoY, boxWidth, boxHeight);
@@ -498,22 +511,24 @@ public class GravitySimulation extends BaseSimulation {
                 double speed = Math.sqrt(selectedPlanet.vx * selectedPlanet.vx + 
                                         selectedPlanet.vy * selectedPlanet.vy);
                 g2d.drawString(String.format("Speed: %.2f", speed), infoX + 10, textY);
+                textY += 20;
+                
+                // Period of Rotation
+                double period = selectedPlanet.getPeriodOfRotation();
+                if (period > 0) {
+                    g2d.drawString(String.format("Period (T): %.2f s", period), infoX + 10, textY);
+                } else {
+                    g2d.drawString("Period (T): Not rotating", infoX + 10, textY);
+                }
             }
-                        
-            // Draw red X marker at last click position
-            drawClickMarker(g2d);
-            
-            // Restore original transform for text (so it's not zoomed/panned)
-            g2d.setTransform(originalTransform);
             
             // Draw info text (always at same screen position, not affected by zoom/pan)
             g2d.setColor(Color.WHITE);
             g2d.drawString("Planets: " + (planets != null ? planets.size() : 0), 10, 20);
-            g2d.drawString("Point Masses: " + (masses != null ? masses.size() : 0), 10, 35);
-            g2d.drawString("G = " + gravitationalConstant, 10, 50);
+            g2d.drawString("G = " + gravitationalConstant, 10, 35);
             if (isPaused) {
                 g2d.setColor(Color.YELLOW);
-                g2d.drawString("PAUSED - Press SPACE to resume", 10, 65);
+                g2d.drawString("PAUSED - Press SPACE to resume", 10, 50);
             }
             g2d.setColor(Color.WHITE);
             g2d.drawString("Controls: Click to set position, then use panel on right. Drag = pan, SPACE = pause/resume", 10, getHeight() - 10);

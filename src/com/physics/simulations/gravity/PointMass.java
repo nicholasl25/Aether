@@ -3,72 +3,85 @@ package com.physics.simulations.gravity;
 import java.awt.Color;
 import java.awt.Graphics2D;
 
-public class PointMass {
+/**
+ * PointMass - A stationary planet that doesn't move but exerts gravitational force.
+ * Extends Planet but overrides updateVelocity and updatePosition to remain stationary.
+ */
+public class PointMass extends Planet {
     
-    double mass;
-    double x, y;
-    Color color;
-
-    double radius;
-    Color DEFAULT = Color.WHITE;
-   
+    /**
+     * Constructor for PointMass with default radius and color
+     */
     public PointMass(double mass, double x, double y) {
         this(mass, x, y, 10, Color.WHITE);
     }
 
+    /**
+     * Constructor for PointMass
+     */
     public PointMass(double mass, double x, double y, double radius, Color color) {
-        this.mass = mass;
-        this.radius = radius;
-        this.x = x;
-        this.y = y;
-        this.color = color;
+        // Call Planet constructor with zero velocity and angular velocity (stationary)
+        super(mass, radius, x, y, 0.0, 0.0, 0.0, color, null);
     }
 
-    public double distanceTo(Planet other) {
-        double dx = this.x - other.x;
-        double dy = this.y - other.y;
-        return Math.sqrt(dx*dx + dy*dy);
+    /**
+     * Override updateVelocity - PointMass doesn't move, so velocity never changes
+     */
+    @Override
+    public void updateVelocity(double ax, double ay, double deltaTime) {
+        // Do nothing - PointMass is stationary
     }
 
-    public double[] gravitationalForceFrom(Planet other, double gravitationalConstant) {
-        double distance = distanceTo(other);
-        double directionX = (other.x - this.x) / distance;
-        double directionY = (other.y - this.y) / distance;
-
-        double forceMagnitude = gravitationalConstant * this.mass * other.mass / (distance * distance);
-
-        double forceX = directionX * forceMagnitude;
-        double forceY = directionY * forceMagnitude;
-
-
-        double[] forceVect = {forceX, forceY};
-        return forceVect; 
+    /**
+     * Override updatePosition - PointMass doesn't move, so position never changes
+     */
+    @Override
+    public void updatePosition(double deltaTime, double timeFactor) {
+        // Do nothing - PointMass is stationary
+        // Rotation also doesn't change (angularVelocity is 0)
     }
 
+    /**
+     * Override draw to use simpler rendering (no texture/rotation needed for stationary mass)
+     */
+    @Override
     public void draw(Graphics2D g2d) {
         g2d.setColor(color);
         int drawX = (int)(x - radius);
         int drawY = (int)(y - radius);
         int size = (int)(radius * 2);
         g2d.fillOval(drawX, drawY, size, size);
+        
+        // Draw yellow circle when selected (same as Planet)
+        if (clicked) {
+            g2d.setStroke(new java.awt.BasicStroke(3.0f));
+            g2d.setColor(Color.YELLOW);
+            g2d.drawOval(drawX-5, drawY-5, size+10, size+10);
+        }
     }
 
-    public boolean collidesWith(Planet other) {
-        return distanceTo(other) < (this.radius + other.radius);
-    }
-
-    public void merge(Planet other) {
-        this.mass += other.mass;
-
+    /**
+     * Merges with another planet, creating a new PointMass with combined mass.
+     * PointMass always wins in a merge (remains stationary).
+     * 
+     * @param other The planet to merge with
+     * @return A new PointMass with combined properties
+     */
+    public PointMass merge(Planet other) {
+        double combinedMass = this.mass + other.mass;
+        
+        // Use the larger radius
+        double newRadius = this.radius > other.radius ? this.radius : other.radius;
+        
+        // Average the colors
         Color c1 = this.color;
         Color c2 = other.color;
         int r = (c1.getRed() + c2.getRed()) / 2;
         int g = (c1.getGreen() + c2.getGreen()) / 2;
         int b = (c1.getBlue() + c2.getBlue()) / 2;
-
         Color newColor = new Color(r, g, b);
-
-        this.color = newColor;
+        
+        // Position stays at PointMass location (stationary)
+        return new PointMass(combinedMass, this.x, this.y, newRadius, newColor);
     }
-
 }

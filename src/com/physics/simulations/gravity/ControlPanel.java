@@ -10,30 +10,33 @@ import java.awt.event.KeyEvent;
  */
 public class ControlPanel extends JPanel {
     // Input fields
-    private JTextField massField, radiusField, vxField, vyField;
-    private JComboBox<String> colorCombo;
-    private JSlider gravitySlider;
+    private JTextField massField, radiusField, vxField, vyField, periodField;
+    private JComboBox<String> colorCombo, textureCombo;
+    private JSlider gravitySlider, timeFactorSlider;
+    private JPanel advancedPanel;
+    private boolean advancedExpanded = false;
     
     // Callbacks
     private Runnable onAddPlanet;
-    private Runnable onAddStationaryMass;
     private Runnable onClearSimulation;
     private java.util.function.Consumer<Double> onGravityChanged;
+    private java.util.function.Consumer<Double> onTimeFactorChanged;
     
     /**
      * Creates a new control panel with the specified callbacks.
      * 
      * @param onAddPlanet Called when "Add Planet" button is clicked
-     * @param onAddStationaryMass Called when "Add Stationary Mass" button is clicked
      * @param onClearSimulation Called when "Clear Simulation" button is clicked
      * @param onGravityChanged Called when gravity slider changes
+     * @param onTimeFactorChanged Called when time factor slider changes
      */
-    public ControlPanel(Runnable onAddPlanet, Runnable onAddStationaryMass, Runnable onClearSimulation, 
-                       java.util.function.Consumer<Double> onGravityChanged) {
+    public ControlPanel(Runnable onAddPlanet, Runnable onClearSimulation, 
+                       java.util.function.Consumer<Double> onGravityChanged,
+                       java.util.function.Consumer<Double> onTimeFactorChanged) {
         this.onAddPlanet = onAddPlanet;
-        this.onAddStationaryMass = onAddStationaryMass;
         this.onClearSimulation = onClearSimulation;
         this.onGravityChanged = onGravityChanged;
+        this.onTimeFactorChanged = onTimeFactorChanged;
         
         setupPanel();
     }
@@ -137,6 +140,75 @@ public class ControlPanel extends JPanel {
         });
         colorCombo.setMaximumSize(new Dimension(Integer.MAX_VALUE, colorCombo.getPreferredSize().height));
         panel.add(colorCombo);
+        panel.add(Box.createVerticalStrut(5));
+        
+        // Texture
+        JLabel textureLabel = new JLabel("Texture:");
+        textureLabel.setForeground(Color.WHITE);
+        panel.add(textureLabel);
+        textureCombo = new JComboBox<>(new String[]{
+            "None (Solid Color)", "Earth", "Mars", "Jupiter", "Moon", "Sun", "Venus"
+        });
+        textureCombo.setMaximumSize(new Dimension(Integer.MAX_VALUE, textureCombo.getPreferredSize().height));
+        panel.add(textureCombo);
+        panel.add(Box.createVerticalStrut(10));
+        
+        // Advanced Settings collapsible section
+        JPanel advancedHeader = new JPanel();
+        advancedHeader.setLayout(new BorderLayout());
+        advancedHeader.setBackground(new Color(60, 60, 60));
+        advancedHeader.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        advancedHeader.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        
+        JLabel advancedLabel = new JLabel("▶ Advanced Settings");
+        advancedLabel.setForeground(Color.LIGHT_GRAY);
+        advancedLabel.setFont(new Font("Sans-serif", Font.BOLD, 11));
+        advancedHeader.add(advancedLabel, BorderLayout.WEST);
+        
+        // Make the header clickable
+        advancedHeader.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        advancedHeader.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                advancedExpanded = !advancedExpanded;
+                advancedLabel.setText(advancedExpanded ? "▼ Advanced Settings" : "▶ Advanced Settings");
+                advancedPanel.setVisible(advancedExpanded);
+                panel.revalidate();
+                panel.repaint();
+            }
+            
+            @Override
+            public void mouseEntered(java.awt.event.MouseEvent e) {
+                advancedHeader.setBackground(new Color(70, 70, 70));
+            }
+            
+            @Override
+            public void mouseExited(java.awt.event.MouseEvent e) {
+                advancedHeader.setBackground(new Color(60, 60, 60));
+            }
+        });
+        
+        panel.add(advancedHeader);
+        
+        // Advanced settings content panel
+        advancedPanel = new JPanel();
+        advancedPanel.setLayout(new BoxLayout(advancedPanel, BoxLayout.Y_AXIS));
+        advancedPanel.setBackground(new Color(50, 50, 50));
+        advancedPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        advancedPanel.setVisible(false);
+        
+        // Period of Rotation field
+        JLabel periodLabel = new JLabel("Period of Rotation (T):");
+        periodLabel.setForeground(Color.WHITE);
+        periodLabel.setFont(new Font("Sans-serif", Font.PLAIN, 11));
+        advancedPanel.add(periodLabel);
+        
+        periodField = new JTextField("100.0");
+        periodField.setMaximumSize(new Dimension(Integer.MAX_VALUE, periodField.getPreferredSize().height));
+        periodField.setToolTipText("Time for one complete rotation (seconds)");
+        advancedPanel.add(periodField);
+        
+        panel.add(advancedPanel);
         panel.add(Box.createVerticalStrut(10));
         
         // Add Planet button
@@ -149,18 +221,6 @@ public class ControlPanel extends JPanel {
         });
         removeSpacebarActivation(addPlanetButton);
         panel.add(addPlanetButton);
-        panel.add(Box.createVerticalStrut(5));
-        
-        // Add Stationary Mass button
-        JButton addStationaryMassButton = new JButton("Add Stationary Mass");
-        addStationaryMassButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, addStationaryMassButton.getPreferredSize().height));
-        addStationaryMassButton.addActionListener(e -> {
-            if (onAddStationaryMass != null) {
-                onAddStationaryMass.run();
-            }
-        });
-        removeSpacebarActivation(addStationaryMassButton);
-        panel.add(addStationaryMassButton);
         
         panel.add(Box.createVerticalGlue());
         
@@ -181,7 +241,7 @@ public class ControlPanel extends JPanel {
         gLabel.setForeground(Color.WHITE);
         panel.add(gLabel);
         
-        gravitySlider = new JSlider(0, 10000, 6000);
+        gravitySlider = new JSlider(0, 20000, 6000);
         gravitySlider.setMaximumSize(new Dimension(Integer.MAX_VALUE, gravitySlider.getPreferredSize().height));
         gravitySlider.setBackground(new Color(50, 50, 50));
         gravitySlider.setForeground(Color.WHITE);
@@ -200,6 +260,34 @@ public class ControlPanel extends JPanel {
         });
         panel.add(gValueLabel);
         
+        panel.add(Box.createVerticalStrut(15));
+        
+        // Time Factor slider
+        JLabel timeFactorLabel = new JLabel("Time Factor:");
+        timeFactorLabel.setForeground(Color.WHITE);
+        panel.add(timeFactorLabel);
+        
+        timeFactorSlider = new JSlider(1, 100, 10); // 0.1 to 10.0 (scaled by 10)
+        timeFactorSlider.setMaximumSize(new Dimension(Integer.MAX_VALUE, timeFactorSlider.getPreferredSize().height));
+        timeFactorSlider.setBackground(new Color(50, 50, 50));
+        timeFactorSlider.setForeground(Color.WHITE);
+        timeFactorSlider.addChangeListener(e -> {
+            if (onTimeFactorChanged != null) {
+                double timeFactor = timeFactorSlider.getValue() / 10.0;
+                onTimeFactorChanged.accept(timeFactor);
+            }
+        });
+        panel.add(timeFactorSlider);
+        
+        JLabel timeFactorValueLabel = new JLabel("1.0 s/s");
+        timeFactorValueLabel.setForeground(Color.LIGHT_GRAY);
+        timeFactorValueLabel.setFont(new Font("Sans-serif", Font.PLAIN, 11));
+        timeFactorSlider.addChangeListener(e -> {
+            double timeFactor = timeFactorSlider.getValue() / 10.0;
+            timeFactorValueLabel.setText(String.format("%.1f s/s", timeFactor));
+        });
+        panel.add(timeFactorValueLabel);
+        
         panel.add(Box.createVerticalGlue());
         
         return panel;
@@ -217,29 +305,25 @@ public class ControlPanel extends JPanel {
             double radius = Double.parseDouble(radiusField.getText());
             double vx = Double.parseDouble(vxField.getText());
             double vy = Double.parseDouble(vyField.getText());
+            double period = Double.parseDouble(periodField.getText());
             Color color = getColorFromCombo(colorCombo);
+            String texturePath = getTexturePath();
             
-            return new PlanetData(mass, radius, vx, vy, color);
+            return new PlanetData(mass, radius, vx, vy, period, color, texturePath);
         } catch (NumberFormatException e) {
             return null;
         }
     }
     
     /**
-     * Gets stationary mass data from the control fields.
-     * 
-     * @return StationaryMassData object containing the values, or null if invalid
+     * Gets the texture path based on selection
      */
-    public StationaryMassData getStationaryMassData() {
-        try {
-            double mass = Double.parseDouble(massField.getText());
-            double radius = Double.parseDouble(radiusField.getText());
-            Color color = getColorFromCombo(colorCombo);
-            
-            return new StationaryMassData(mass, radius, color);
-        } catch (NumberFormatException e) {
+    private String getTexturePath() {
+        String selected = (String) textureCombo.getSelectedItem();
+        if (selected == null || selected.equals("None (Solid Color)")) {
             return null;
         }
+        return "resources/textures/" + selected + ".jpg";
     }
     
     /**
@@ -287,30 +371,33 @@ public class ControlPanel extends JPanel {
         public final double radius;
         public final double vx;
         public final double vy;
+        public final double period;  // Period of rotation in seconds
         public final Color color;
+        public final String texturePath;
         
-        public PlanetData(double mass, double radius, double vx, double vy, Color color) {
+        public PlanetData(double mass, double radius, double vx, double vy, double period, Color color, String texturePath) {
             this.mass = mass;
             this.radius = radius;
             this.vx = vx;
             this.vy = vy;
+            this.period = period;
             this.color = color;
+            this.texturePath = texturePath;
+        }
+        
+        /**
+         * Calculates angular velocity from the period of rotation.
+         * Formula: ω = 2π / T
+         * 
+         * @return Angular velocity in radians per second
+         */
+        public double getAngularVelocity() {
+            if (period <= 0) {
+                return 0.0;
+            }
+            return (2.0 * Math.PI) / period;
         }
     }
     
-    /**
-     * Data class for stationary mass creation.
-     */
-    public static class StationaryMassData {
-        public final double mass;
-        public final double radius;
-        public final Color color;
-        
-        public StationaryMassData(double mass, double radius, Color color) {
-            this.mass = mass;
-            this.radius = radius;
-            this.color = color;
-        }
-    }
 }
 
